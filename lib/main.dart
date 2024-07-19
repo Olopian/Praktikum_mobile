@@ -1,80 +1,131 @@
+import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
+import 'addData.dart';
+import 'detail.dart';
 
-void main() => runApp(MyApp());
-
-class MyApp extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Shared Preferences Demo',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-      ),
-      home: MyHomePage(),
-    );
-  }
+void main() {
+  runApp(const MaterialApp(
+    title: "My Store",
+    home: Home(),
+  ));
 }
 
-class MyHomePage extends StatefulWidget {
+class Home extends StatefulWidget {
+  const Home({super.key});
+
   @override
-  _MyHomePageState createState() => _MyHomePageState();
+  State<Home> createState() => _HomeState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  TextEditingController _nameController = TextEditingController();
-  String _savedName = "No name saved";
+class _HomeState extends State<Home> {
+  late Future<List> _dataFuture;
 
   @override
   void initState() {
     super.initState();
-    _loadName();
+    _dataFuture = getData();
   }
 
-  // Load name from shared preferences
-  _loadName() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
+  Future<List> getData() async {
+    final response =
+        await http.get(Uri.parse("http://127.0.0.1/api/getdata.php"));
+    if (response.statusCode == 200) {
+      var data = json.decode(response.body);
+      if (data['status'] == 'success') {
+        return data['data'];
+      } else {
+        throw Exception(data['message']);
+      }
+    } else {
+      throw Exception('Failed to load data');
+    }
+  }
+
+  void refreshData() {
     setState(() {
-      _savedName = prefs.getString('name') ?? "No name saved";
+      _dataFuture = getData();
     });
   }
 
-  // Save name to shared preferences
-  _saveName(String name) async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    prefs.setString('name', name);
-    _loadName();
+  void navigateToAddData() async {
+    final result = await Navigator.of(context).push(
+      MaterialPageRoute(builder: (context) => const AddData()),
+    );
+    if (result == true) {
+      refreshData();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Shared Preferences Demo'),
+        title: const Text('MY STORE'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: refreshData,
+          ),
+        ],
       ),
-      body: Padding(
-        padding: EdgeInsets.all(16.0),
-        child: Column(
-          children: <Widget>[
-            TextField(
-              controller: _nameController,
-              decoration: InputDecoration(labelText: 'Enter your name'),
-            ),
-            SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: () {
-                _saveName(_nameController.text);
-              },
-              child: Text('Save Name'),
-            ),
-            SizedBox(height: 20),
-            Text(
-              'Saved name: $_savedName',
-              style: TextStyle(fontSize: 20),
-            ),
-          ],
-        ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: navigateToAddData,
+        child: const Icon(Icons.add),
       ),
+      body: FutureBuilder<List>(
+        future: _dataFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          } else if (snapshot.hasError) {
+            return Center(child: Text('Error: ${snapshot.error}'));
+          } else if (snapshot.hasData) {
+            return ItemList(list: snapshot.data!);
+          } else {
+            return const Center(child: Text('No data available'));
+          }
+        },
+      ),
+    );
+  }
+}
+
+class ItemList extends StatelessWidget {
+  final List list;
+  const ItemList({super.key, required this.list});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.builder(
+      itemCount: list.length,
+      itemBuilder: (context, i) {
+        var item = list[i];
+        var title = item['item_name'] ?? 'Unknown'; // Jika NULL
+        var stock =
+            item['stock'] != null ? item['stock'].toString() : 'Unknown';
+
+        return Container(
+          padding: const EdgeInsets.all(10.0),
+          child: GestureDetector(
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => Detail(list: list, index: i),
+                ),
+              );
+            },
+            child: Card(
+              child: ListTile(
+                title: Text(title),
+                leading: const Icon(Icons.widgets),
+                subtitle: Text("Stock: $stock"),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
